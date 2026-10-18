@@ -24,6 +24,7 @@ logging.basicConfig(
 HOSTNAME = socket.gethostname()
 INTERVAL = int(os.getenv("CPU_INTERVAL", "5"))
 THRESHOLD = float(os.getenv("CPU_THRESHOLD", "80"))
+ENABLE_MONGODB = os.getenv("ENABLE_MONGODB", "false").lower() in ("true", "1", "yes")
 
 
 def connect_mysql():
@@ -37,29 +38,58 @@ def connect_mysql():
     )
 
 
+def init_mysql_table(conn):
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS cpu_metrics (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                hostname VARCHAR(255) NOT NULL,
+                cpu_percent DECIMAL(5,2) NOT NULL,
+                is_anomaly TINYINT(1) DEFAULT 0,
+                recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.commit()
+    finally:
+        cursor.close()
+
+
 def main():
     mysql_conn = None
     mongo_client = None
+    collection = None
 
     try:
         # Connect to MySQL
         mysql_conn = connect_mysql()
+        init_mysql_table(mysql_conn)
         logging.info("Connected to MySQL successfully")
 
-        # Connect to MongoDB
-        mongo_client = MongoClient(
-            os.getenv("MONGO_URI", "mongodb://localhost:27017/"),
-            serverSelectionTimeoutMS=5000
-        )
-        mongo_client.admin.command("ping")
+        # Connect to MongoDB (optional)
+        if ENABLE_MONGODB:
+            try:
+                mongo_client = MongoClient(
+                    os.getenv("MONGO_URI", "mongodb://localhost:27017/"),
+                    serverSelectionTimeoutMS=5000
+                )
+                mongo_client.admin.command("ping")
 
-        mongo_db = mongo_client[
-            os.getenv("MONGO_DATABASE", "cpu_monitor")
-        ]
-        collection = mongo_db[
-            os.getenv("MONGO_COLLECTION", "cpu_metrics")
-        ]
-        logging.info("Connected to MongoDB successfully")
+                mongo_db = mongo_client[
+                    os.getenv("MONGO_DATABASE", "cpu_monitor")
+                ]
+                collection = mongo_db[
+                    os.getenv("MONGO_COLLECTION", "cpu_metrics")
+                ]
+                logging.info("Connected to MongoDB successfully")
+            except Exception as e:
+                logging.warning("Could not connect to MongoDB: %s. Continuing with MySQL only.", e)
+                mongo_client = None
+                collection = None
+        else:
+            logging.info("MongoDB disabled via configuration. Storing metrics only in MySQL.")
 
         logging.info("CPU monitoring started. Press Ctrl+C to stop.")
 
@@ -96,15 +126,16 @@ def main():
                 logging.exception("Failed to save reading to MySQL")
 
             # Save to MongoDB
-            try:
-                collection.insert_one({
-                    "hostname": HOSTNAME,
-                    "cpu_percent": cpu_percent,
-                    "is_anomaly": is_anomaly,
-                    "recorded_at": timestamp
-                })
-            except Exception:
-                logging.exception("Failed to save reading to MongoDB")
+            if collection is not None:
+                try:
+                    collection.insert_one({
+                        "hostname": HOSTNAME,
+                        "cpu_percent": cpu_percent,
+                        "is_anomaly": is_anomaly,
+                        "recorded_at": timestamp
+                    })
+                except Exception:
+                    logging.exception("Failed to save reading to MongoDB")
 
             logging.info(
                 "CPU: %.2f%% | Anomaly: %s",
