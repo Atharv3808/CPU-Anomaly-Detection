@@ -1,4 +1,3 @@
-
 import os
 import time
 import socket
@@ -6,160 +5,80 @@ import logging
 from datetime import datetime, timezone
 
 import psutil
-import mysql.connector
-from pymongo import MongoClient
-import certifi
 from dotenv import load_dotenv
 
+import sql
+import mongo
+
+# Load environment variables
 load_dotenv()
 
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler("cpu_monitor.log")
-    ]
+        logging.FileHandler("cpu_monitor.log"),
+    ],
 )
 
+# Configuration settings
 HOSTNAME = socket.gethostname()
 INTERVAL = int(os.getenv("CPU_INTERVAL", "5"))
 THRESHOLD = float(os.getenv("CPU_THRESHOLD", "80"))
-ENABLE_MONGODB = os.getenv("ENABLE_MONGODB", "false").lower() in ("true", "1", "yes")
-
-
-def connect_mysql():
-    return mysql.connector.connect(
-        host=os.getenv("MYSQL_HOST", "127.0.0.1"),
-        port=int(os.getenv("MYSQL_PORT", "3306")),
-        user=os.getenv("MYSQL_USER", "root"),
-        password=os.getenv("MYSQL_PASSWORD", ""),
-        database=os.getenv("MYSQL_DATABASE", "cpu_monitor"),
-        connection_timeout=5
-    )
-
-
-def init_mysql_table(conn):
-    cursor = conn.cursor()
-    try:
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS cpu_metrics (
-                id BIGINT AUTO_INCREMENT PRIMARY KEY,
-                hostname VARCHAR(255) NOT NULL,
-                cpu_percent DECIMAL(5,2) NOT NULL,
-                is_anomaly TINYINT(1) DEFAULT 0,
-                recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-        conn.commit()
-    finally:
-        cursor.close()
 
 
 def main():
-    mysql_conn = None
-    mongo_client = None
-    collection = None
+    # Initialize database connections
+    mysql_conn = sql.connect_mysql()
+    mongo_client, mongo_col = mongo.connect_mongo()
+
+    if mysql_conn is None and mongo_col is None:
+        logging.error("Neither MySQL nor MongoDB is available. Exiting.")
+        return
+
+    logging.info(
+        "CPU monitoring started (Threshold: %.1f%%, Interval: %ds). Press Ctrl+C to stop.",
+        THRESHOLD,
+        INTERVAL,
+    )
 
     try:
-        # Connect to MySQL
-        mysql_conn = connect_mysql()
-        init_mysql_table(mysql_conn)
-        logging.info("Connected to MySQL successfully")
-
-        # Connect to MongoDB (optional)
-        if ENABLE_MONGODB:
-            try:
-                mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-                mongo_client = MongoClient(
-                    mongo_uri,
-                    tlsCAFile=certifi.where(),
-                    serverSelectionTimeoutMS=5000
-                )
-                mongo_client.admin.command("ping")
-
-                mongo_db = mongo_client[
-                    os.getenv("MONGO_DATABASE", "cpu_monitor")
-                ]
-                collection = mongo_db[
-                    os.getenv("MONGO_COLLECTION", "cpu_metrics")
-                ]
-                logging.info("Connected to MongoDB successfully")
-            except Exception as e:
-                logging.warning("Could not connect to MongoDB: %s. Continuing with MySQL only.", e)
-                mongo_client = None
-                collection = None
-        else:
-            logging.info("MongoDB disabled via configuration. Storing metrics only in MySQL.")
-
-        logging.info("CPU monitoring started. Press Ctrl+C to stop.")
-
         while True:
+            # Measure CPU utilization over a 1-second window
             cpu_percent = psutil.cpu_percent(interval=1)
             timestamp = datetime.now(timezone.utc)
             is_anomaly = cpu_percent >= THRESHOLD
 
-            # Save to MySQL
-            try:
-                if not mysql_conn.is_connected():
-                    mysql_conn.reconnect(attempts=3, delay=2)
+            # Save to MySQL if available
+            if mysql_conn is not None:
+                sql.insert_reading(mysql_conn, HOSTNAME, cpu_percent, is_anomaly, timestamp)
 
-                cursor = mysql_conn.cursor()
-                try:
-                    cursor.execute(
-                        """
-                        INSERT INTO cpu_metrics
-                        (hostname, cpu_percent, is_anomaly, recorded_at)
-                        VALUES (%s, %s, %s, %s)
-                        """,
-                        (
-                            HOSTNAME,
-                            cpu_percent,
-                            is_anomaly,
-                            timestamp.replace(tzinfo=None),
-                        )
-                    )
-                    mysql_conn.commit()
-                finally:
-                    cursor.close()
-
-            except mysql.connector.Error:
-                logging.exception("Failed to save reading to MySQL")
-
-            # Save to MongoDB
-            if collection is not None:
-                try:
-                    collection.insert_one({
-                        "hostname": HOSTNAME,
-                        "cpu_percent": cpu_percent,
-                        "is_anomaly": is_anomaly,
-                        "recorded_at": timestamp
-        
-                    })
-                except Exception:
-                    logging.exception("Failed to save reading to MongoDB")
+            # Save to MongoDB if available
+            if mongo_col is not None:
+                mongo.insert_reading(mongo_col, HOSTNAME, cpu_percent, is_anomaly, timestamp)
 
             logging.info(
                 "CPU: %.2f%% | Anomaly: %s",
                 cpu_percent,
-                is_anomaly
+                is_anomaly,
             )
 
+            # Sleep for the remaining interval
             time.sleep(max(0, INTERVAL - 1))
 
     except KeyboardInterrupt:
         logging.info("Monitoring stopped by user")
 
     except Exception:
-        logging.exception("Could not initialize database connections")
+        logging.exception("Unexpected error occurred during monitoring")
 
     finally:
-        if mysql_conn is not None and mysql_conn.is_connected():
-            mysql_conn.close()
-        if mongo_client is not None:
-            mongo_client.close()
+        # Clean up database connections
+        sql.close_mysql(mysql_conn)
+        mongo.close_mongo(mongo_client)
+        logging.info("Cleaned up resources successfully.")
 
 
 if __name__ == "__main__":
