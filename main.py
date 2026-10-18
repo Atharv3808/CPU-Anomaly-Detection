@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import psutil
 import mysql.connector
 from pymongo import MongoClient
+import certifi
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -71,8 +72,10 @@ def main():
         # Connect to MongoDB (optional)
         if ENABLE_MONGODB:
             try:
+                mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
                 mongo_client = MongoClient(
-                    os.getenv("MONGO_URI", "mongodb://localhost:27017/"),
+                    mongo_uri,
+                    tlsCAFile=certifi.where(),
                     serverSelectionTimeoutMS=5000
                 )
                 mongo_client.admin.command("ping")
@@ -115,7 +118,7 @@ def main():
                             HOSTNAME,
                             cpu_percent,
                             is_anomaly,
-                            timestamp.replace(tzinfo=None)
+                            timestamp.replace(tzinfo=None),
                         )
                     )
                     mysql_conn.commit()
@@ -133,6 +136,7 @@ def main():
                         "cpu_percent": cpu_percent,
                         "is_anomaly": is_anomaly,
                         "recorded_at": timestamp
+        
                     })
                 except Exception:
                     logging.exception("Failed to save reading to MongoDB")
