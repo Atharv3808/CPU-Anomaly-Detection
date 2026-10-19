@@ -2,7 +2,6 @@ import os
 import logging
 # pyrefly: ignore[missing-import]
 from pymongo import MongoClient
-import certifi
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -17,11 +16,7 @@ def connect_mongo():
 
     try:
         mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-        mongo_client = MongoClient(
-            mongo_uri,
-            tlsCAFile=certifi.where(),
-            serverSelectionTimeoutMS=5000,
-        )
+        mongo_client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
         mongo_client.admin.command("ping")
 
         mongo_db = mongo_client[
@@ -58,12 +53,6 @@ def close_mongo(client):
     """Safely close the MongoDB client connection."""
     if client is not None:
         if hasattr(client, "database"):
-            # Handles case where collection was passed instead of client
             client = client.database.client
         client.close()
         logging.info("MongoDB connection closed.")
-
-
-# Aliases for flexible imports
-insert_mongo = insert_reading
-close_connection = close_mongo

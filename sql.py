@@ -8,7 +8,7 @@ load_dotenv()
 
 
 def connect_mysql():
-    """Establish connection to MySQL and ensure the table exists."""
+    """connection to MySQL and the table exist."""
     try:
         conn = mysql.connector.connect(
             host=os.getenv("MYSQL_HOST", "127.0.0.1"),
@@ -28,7 +28,7 @@ def connect_mysql():
 
 
 def init_mysql_table(conn):
-    """Create the cpu_metrics table if it does not already exist."""
+    """cpu_metrics table creation."""
     if conn is None:
         return
     cursor = conn.cursor()
@@ -77,16 +77,13 @@ def insert_reading(conn, hostname, cpu_percent, is_anomaly, recorded_at):
         finally:
             cursor.close()
 
-    except mysql.connector.Error:
-        logging.exception("Failed to save reading to MySQL")
-        return False
     except Exception:
-        logging.exception("Unexpected error saving reading to MySQL")
+        logging.exception("Failed to save reading to MySQL")
         return False
 
 
 def close_mysql(conn):
-    """Safely close the MySQL connection."""
+    """close connection."""
     if conn is not None and conn.is_connected():
         conn.close()
         logging.info("MySQL connection closed.")
@@ -202,10 +199,3 @@ def get_history(conn, limit=30):
     except Exception:
         logging.exception("Error fetching history readings")
         return []
-
-
-# Aliases for flexible imports
-insert_mysql = insert_reading
-close_connection = close_mysql
-get_latest_metric = get_latest_reading
-
