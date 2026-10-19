@@ -1,5 +1,6 @@
 import os
 import logging
+# pyrefly: ignore[missing-import]
 import mysql.connector
 from dotenv import load_dotenv
 
@@ -16,6 +17,7 @@ def connect_mysql():
             password=os.getenv("MYSQL_PASSWORD", ""),
             database=os.getenv("MYSQL_DATABASE", "cpu_monitor"),
             connection_timeout=5,
+            autocommit=True,
         )
         init_mysql_table(conn)
         logging.info("Connected to MySQL successfully")
@@ -90,6 +92,120 @@ def close_mysql(conn):
         logging.info("MySQL connection closed.")
 
 
+def get_latest_reading(conn):
+    """Retrieve the most recent CPU reading."""
+    if conn is None:
+        return None
+    try:
+        if not conn.is_connected():
+            conn.reconnect(attempts=3, delay=1)
+        else:
+            conn.commit()  # Flush read view to ensure latest committed records are visible
+
+        cursor = conn.cursor(dictionary=True)
+        try:
+            cursor.execute(
+                """
+                SELECT id, hostname, cpu_percent, is_anomaly, recorded_at
+                FROM cpu_metrics
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            )
+            row = cursor.fetchone()
+            if row:
+                return {
+                    "id": row["id"],
+                    "hostname": row["hostname"],
+                    "cpu_percent": float(row["cpu_percent"]),
+                    "is_anomaly": bool(row["is_anomaly"]),
+                    "recorded_at": row["recorded_at"].strftime("%Y-%m-%d %H:%M:%S") if row["recorded_at"] else "",
+                }
+            return None
+        finally:
+            cursor.close()
+    except Exception:
+        logging.exception("Error fetching latest CPU reading")
+        return None
+
+
+def get_summary(conn):
+    """Retrieve total readings, anomaly count, and normal count."""
+    if conn is None:
+        return {"total": 0, "anomalies": 0, "normal": 0}
+    try:
+        if not conn.is_connected():
+            conn.reconnect(attempts=3, delay=1)
+        else:
+            conn.commit()  # Flush read view to ensure latest committed records are visible
+
+        cursor = conn.cursor(dictionary=True)
+        try:
+            cursor.execute(
+                """
+                SELECT 
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN is_anomaly = 1 THEN 1 ELSE 0 END) AS anomalies
+                FROM cpu_metrics
+                """
+            )
+            row = cursor.fetchone()
+            total = int(row["total"]) if row and row["total"] is not None else 0
+            anomalies = int(row["anomalies"]) if row and row["anomalies"] is not None else 0
+            normal = max(0, total - anomalies)
+            return {
+                "total": total,
+                "anomalies": anomalies,
+                "normal": normal,
+            }
+        finally:
+            cursor.close()
+    except Exception:
+        logging.exception("Error fetching summary metrics")
+        return {"total": 0, "anomalies": 0, "normal": 0}
+
+
+def get_history(conn, limit=30):
+    """Retrieve recent CPU readings for dashboard tables and charts."""
+    if conn is None:
+        return []
+    try:
+        if not conn.is_connected():
+            conn.reconnect(attempts=3, delay=1)
+        else:
+            conn.commit()  # Flush read view to ensure latest committed records are visible
+
+        cursor = conn.cursor(dictionary=True)
+        try:
+            cursor.execute(
+                """
+                SELECT id, hostname, cpu_percent, is_anomaly, recorded_at
+                FROM cpu_metrics
+                ORDER BY id DESC
+                LIMIT %s
+                """,
+                (limit,),
+            )
+            rows = cursor.fetchall()
+            results = []
+            for row in rows:
+                results.append({
+                    "id": row["id"],
+                    "hostname": row["hostname"],
+                    "cpu_percent": float(row["cpu_percent"]),
+                    "is_anomaly": bool(row["is_anomaly"]),
+                    "recorded_at": row["recorded_at"].strftime("%Y-%m-%d %H:%M:%S") if row["recorded_at"] else "",
+                })
+            return results
+        finally:
+            cursor.close()
+    except Exception:
+        logging.exception("Error fetching history readings")
+        return []
+
+
 # Aliases for flexible imports
 insert_mysql = insert_reading
 close_connection = close_mysql
+get_latest_metric = get_latest_reading
+

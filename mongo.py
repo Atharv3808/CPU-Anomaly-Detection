@@ -1,5 +1,6 @@
 import os
 import logging
+# pyrefly: ignore[missing-import]
 from pymongo import MongoClient
 import certifi
 from dotenv import load_dotenv
