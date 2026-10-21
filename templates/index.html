@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +8,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
+
 <body>
     <div class="dashboard-container">
         <!-- Dashboard Header -->
@@ -42,7 +44,7 @@
                 <div style="margin-top: 6px;">
                     <span class="status-pill status-normal" id="current-status">CONNECTING</span>
                 </div>
-                <div class="metric-subtitle">Threshold: 80%</div>
+                <div class="metric-subtitle">Threshold: 60%</div>
             </div>
 
             <!-- Total Readings Card -->
@@ -56,14 +58,14 @@
             <div class="metric-card">
                 <div class="metric-title">Normal Readings</div>
                 <div class="metric-value" style="color: var(--color-success);" id="normal-readings">0</div>
-                <div class="metric-subtitle">Within threshold (&lt;80%)</div>
+                <div class="metric-subtitle">Within threshold (&lt;60%)</div>
             </div>
 
             <!-- Anomalies Card -->
             <div class="metric-card">
                 <div class="metric-title">Total Anomalies</div>
                 <div class="metric-value" style="color: var(--color-danger);" id="total-anomalies">0</div>
-                <div class="metric-subtitle">Exceeded 80% threshold</div>
+                <div class="metric-subtitle">Exceeded 60% threshold</div>
             </div>
         </section>
 
@@ -71,7 +73,7 @@
         <section class="chart-card">
             <div class="card-header">
                 <h2 class="card-title">CPU Utilization History (Recent 30 Readings)</h2>
-                <span class="threshold-badge">Threshold: 80%</span>
+                <span class="threshold-badge">Threshold: 60%</span>
             </div>
             <div class="chart-wrapper">
                 <canvas id="cpuChart"></canvas>
@@ -150,7 +152,7 @@
                             legend: { display: false },
                             tooltip: {
                                 callbacks: {
-                                    label: function(context) {
+                                    label: function (context) {
                                         return `CPU: ${context.parsed.y.toFixed(2)}%`;
                                     }
                                 }
@@ -161,7 +163,7 @@
                                 min: 0,
                                 max: 100,
                                 ticks: {
-                                    callback: function(val) { return val + '%'; }
+                                    callback: function (val) { return val + '%'; }
                                 },
                                 grid: { color: '#f1f5f9' }
                             },
@@ -194,7 +196,7 @@
                     const isAnomaly = Boolean(metric.is_anomaly);
 
                     document.getElementById('current-cpu').innerText = `${cpuPercent.toFixed(2)}%`;
-                    
+
                     const progressBar = document.getElementById('cpu-progress-bar');
                     progressBar.style.width = `${Math.min(100, Math.max(0, cpuPercent))}%`;
                     progressBar.style.backgroundColor = isAnomaly ? 'var(--color-danger)' : 'var(--color-primary)';
@@ -209,8 +211,8 @@
                     }
 
                     document.getElementById('host-badge').innerText = `Host: ${metric.hostname || 'Unknown'}`;
-                    document.getElementById('last-updated').innerText = metric.recorded_at 
-                        ? `Recorded: ${metric.recorded_at}` 
+                    document.getElementById('last-updated').innerText = metric.recorded_at
+                        ? `Recorded: ${metric.recorded_at}`
                         : 'No timestamp';
                 }
 
@@ -299,4 +301,5 @@
         });
     </script>
 </body>
+
 </html>

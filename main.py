@@ -26,7 +26,7 @@ logging.basicConfig(
 # Configuration settings
 HOSTNAME = socket.gethostname()
 INTERVAL = int(os.getenv("CPU_INTERVAL", "5"))
-THRESHOLD = float(os.getenv("CPU_THRESHOLD", "80"))
+THRESHOLD = float(os.getenv("CPU_THRESHOLD", "60"))
 
 
 def main():
